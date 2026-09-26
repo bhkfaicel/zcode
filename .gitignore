@@ -1,0 +1,13 @@
+# Runtime state and secrets - NEVER version
+v2/
+workspace/
+plugin-workspace/
+cli/db/
+cli/exec/
+cli/log/
+cli/rollout/
+cli/memories/
+# Plugin storage: cache/data re-download from marketplaces; keep the registry
+cli/plugins/*
+!cli/plugins/known_marketplaces.json
+cli/artifacts/
