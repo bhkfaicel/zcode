@@ -113,5 +113,22 @@
       "shared-agents@shared-agents": true,
       "shared-agents": true
     }
+  },
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"$HOME/.zcode/hooks/bash_guard.py\"",
+              "timeout": 5
+            }
+          ]
+        }
+      ]
+    }
   }
 }
