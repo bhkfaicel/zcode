@@ -9,6 +9,12 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
+- Repository hygiene: the compiled Python bytecode artifact under
+  `hooks/__pycache__/` is no longer tracked, and `__pycache__/` was added to
+  `.gitignore`. Bytecode caches are regenerated from source on every
+  interpreter run, so a tracked copy only added diff noise and stale-artifact
+  churn; the local file remains on disk, now ignored. Git-only change: no
+  hook behavior is affected.
 - `bash-guard` test-suite diagnostics are now written in English: test
   labels, the failure message format (`expected ... got ...` instead of the
   previous French wording), and the final success and failure output. String

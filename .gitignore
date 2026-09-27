@@ -13,3 +13,5 @@ cli/plugins/*
 cli/artifacts/
 plan/
 .opencode-memory/
+# Python bytecode caches: regenerated from source on every interpreter run
+__pycache__/
