@@ -34,6 +34,40 @@ NAME=VALUE assignments and a leading run of supported wrapper commands
 their options are skipped, and the first token that survives is compared
 to the deny-list through quoting-context candidates (the raw token, its
 basename, and the shell-resolved form of each supported quoting style).
+
+Enforced property, stated on its own terms: the hook is a first-token
+backstop. For every command segment it resolves the DIRECT command word
+behind leading assignments and a leading run of supported wrapper
+commands and options, and checks that word against the deny-list. It is
+a backstop over that supported wrapper/option subset, not a sandbox: it
+deliberately does not implement a shell parser or a sandbox, and the
+limits below are accepted and documented so users do not over-trust
+the guard.
+
+Accepted limits, in three groups:
+
+- Indirect execution is not covered. Anything that runs the destructive
+  program inside another process has no direct command word to inspect:
+  interpreter wrappers (`sh -c "rm -rf x"`, `bash -c ...`, language
+  interpreters such as `python3 -c "os.system(...)"`), command
+  substitution (`$(rm ...)` and backticks), `xargs rm`, and deletion
+  primitives of other tools (`find / -name x -delete`).
+- Wrapper parsing has residuals in both directions. The per-wrapper
+  operand-option table is a selected subset of each wrapper's options,
+  not an exhaustive one: an unknown operand-taking option (for example
+  a platform-dependent sudo option) makes the guard test the option
+  operand instead of the real command, which then passes (missed block,
+  fail-open direction). Conversely, a wrapper option that terminates
+  the wrapper without running the rest of the segment (`sudo -V`,
+  `sudo -l`, `env` carrying assignments but no trailing command) can be
+  conservatively blocked although the rest would never execute (false
+  block, safe direction).
+- Lexical normalization has limits. The quoting-context candidates
+  cover the supported quoting styles only. A command name assembled
+  with `${...}` parameter expansion or `$(...)` substitution, an alias,
+  IFS manipulation, mixed quoting beyond the supported forms, and
+  `$'...'` content holding ANSI-C escapes stay unnormalized and can
+  slip past the deny-list.
 """
 
 import json

@@ -7,6 +7,22 @@ and this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- `bash-guard` module docstring now states the enforced property on its own
+  terms (a first-token backstop: the direct command word behind leading
+  assignments and a leading run of supported wrapper commands and options is
+  checked against the deny-list, deliberately without a shell parser or a
+  sandbox) and documents the accepted limits in three groups: indirect
+  execution (interpreter wrappers, command substitution and backticks,
+  `xargs`, `find -delete`), wrapper-parsing residuals in both directions
+  (the per-wrapper operand-option table is a selected subset, so unknown
+  operand-taking options are missed while wrapper-terminating options can
+  conservatively over-block), and lexical normalization limits
+  (`${...}`/`$(...)`-assembled names, aliases, IFS manipulation, mixed
+  quoting beyond the supported forms, `$'...'` content with escapes).
+  Documentation only: no behavior change.
+
 ### Fixed
 
 - `bash-guard` payload handling now follows a decided failure-mode policy
