@@ -12,9 +12,13 @@ from bash_guard import extract_command, is_denied  # noqa: E402
 HOOK = str(Path(__file__).resolve().parent.parent / "bash_guard.py")
 
 failures = []
+executed_checks = 0  # dynamic count so the printed total can never drift
 
 
 def check(name, actual, expected):
+    """Record one executed check and collect failures for the final report."""
+    global executed_checks
+    executed_checks += 1
     if actual != expected:
         failures.append(f"{name}: attendu {expected!r}, obtenu {actual!r}")
 
@@ -35,6 +39,19 @@ check("mkfs.vfat", is_denied("mkfs.vfat /dev/sdz") is not None, True)
 check("dd", is_denied("dd if=/dev/zero of=/dev/sda") is not None, True)
 check("faux positif: remmina", is_denied("remmina"), None)
 check("faux positif: rmdir n'est pas rm mais est bloque", is_denied("rmdir d") is not None, True)
+
+# Separator coverage: newline, CR and lone & must split segments too
+check("rm after newline", is_denied("echo hello\nrm -rf x") is not None, True)
+check("rm after CRLF", is_denied("echo hello\r\nrm -rf x") is not None, True)
+check("rm after lone ampersand", is_denied("echo done & rm -rf x") is not None, True)
+check("double ampersand still yields rm", is_denied("cd /tmp && rm -rf x"), "rm")
+
+# Quoted separators are still over-split (no quote parsing) but must never
+# make a fragment whose first token matches a deny token
+check("quoted ampersand passes", is_denied('echo "a & b"'), None)
+check("quoted semicolon passes", is_denied('echo "x; y"'), None)
+check("quoted pipe passes", is_denied('grep "foo|bar" f'), None)
+check("quoted double ampersand passes", is_denied('git commit -m "fix && polish"'), None)
 
 # Payload extraction
 check("tool_input.command", extract_command({"tool_input": {"command": "ls"}}), "ls")
@@ -63,4 +80,4 @@ if failures:
     for failure in failures:
         print(" -", failure)
     sys.exit(1)
-print(f"OK — 19 tests passent")
+print(f"OK — {executed_checks} tests passent")

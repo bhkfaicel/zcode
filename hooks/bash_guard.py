@@ -11,8 +11,9 @@ Protocol (ZCode hooks):
 - stdout on pass: nothing, exit 0. Parse failure: pass (fail-open) and
   log to stderr so the ZCode hook log shows the anomaly.
 
-Matching is segment-aware: the command is split on &&, ||, ; and | and
-every segment is tested, so `cd /tmp && rm -rf x` is caught too.
+Matching is segment-aware: the command is split on &&, ||, ;, |, a lone &
+(background separator), newline and carriage return, and every segment is
+tested, so `cd /tmp && rm -rf x` is caught too.
 """
 
 import json
@@ -31,7 +32,11 @@ DENY_FIRST_TOKENS = (
 )
 
 # Split points between shell segments (conservative: no quotes parsing).
-SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\|")
+# Alternation order matters: `&&` and `||` come before the character class
+# so the two-character operators win over their single-character forms
+# (lone `&` background separator, `|` pipe). `;`, newline and CR are the
+# remaining POSIX command separators and end a segment as well.
+SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|&\r\n]")
 
 
 def first_token(segment: str) -> str:
