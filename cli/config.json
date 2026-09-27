@@ -8,16 +8,46 @@
         "apiKey": "failover-local"
       },
       "models": {
-        "security-auditor": { "name": "Failover security-auditor", "tool_call": true },
-        "performance-auditor": { "name": "Failover performance-auditor", "tool_call": true },
-        "architecture-auditor": { "name": "Failover architecture-auditor", "tool_call": true },
-        "audit-critic": { "name": "Failover audit-critic", "tool_call": true },
-        "implementer": { "name": "Failover implementer", "tool_call": true },
-        "pcb-creator": { "name": "Failover pcb-creator", "tool_call": true },
-        "pcb-designer": { "name": "Failover pcb-designer", "tool_call": true },
-        "pcb-emc-auditor": { "name": "Failover pcb-emc-auditor", "tool_call": true },
-        "pcb-schematic-auditor": { "name": "Failover pcb-schematic-auditor", "tool_call": true },
-        "pcb-spice-auditor": { "name": "Failover pcb-spice-auditor", "tool_call": true }
+        "security-auditor": {
+          "name": "Failover security-auditor",
+          "tool_call": true
+        },
+        "performance-auditor": {
+          "name": "Failover performance-auditor",
+          "tool_call": true
+        },
+        "architecture-auditor": {
+          "name": "Failover architecture-auditor",
+          "tool_call": true
+        },
+        "audit-critic": {
+          "name": "Failover audit-critic",
+          "tool_call": true
+        },
+        "implementer": {
+          "name": "Failover implementer",
+          "tool_call": true
+        },
+        "pcb-creator": {
+          "name": "Failover pcb-creator",
+          "tool_call": true
+        },
+        "pcb-designer": {
+          "name": "Failover pcb-designer",
+          "tool_call": true
+        },
+        "pcb-emc-auditor": {
+          "name": "Failover pcb-emc-auditor",
+          "tool_call": true
+        },
+        "pcb-schematic-auditor": {
+          "name": "Failover pcb-schematic-auditor",
+          "tool_call": true
+        },
+        "pcb-spice-auditor": {
+          "name": "Failover pcb-spice-auditor",
+          "tool_call": true
+        }
       }
     }
   },
@@ -26,7 +56,9 @@
       "opencode-memory-global": {
         "type": "stdio",
         "command": "/Users/macbook/.local/bin/opencode-memory",
-        "args": ["global"],
+        "args": [
+          "global"
+        ],
         "env": {
           "MCP_EXTERNAL_EMBEDDING_URL": "http://192.168.1.37:11434/v1/embeddings",
           "MCP_EXTERNAL_EMBEDDING_MODEL": "qwen3-embedding",
@@ -36,7 +68,9 @@
       "opencode-memory-project": {
         "type": "stdio",
         "command": "/Users/macbook/.local/bin/opencode-memory",
-        "args": ["project"],
+        "args": [
+          "project"
+        ],
         "env": {
           "MCP_EXTERNAL_EMBEDDING_URL": "http://192.168.1.37:11434/v1/embeddings",
           "MCP_EXTERNAL_EMBEDDING_MODEL": "qwen3-embedding",
@@ -46,7 +80,10 @@
       "chrome-devtools": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "chrome-devtools-mcp@latest"]
+        "args": [
+          "-y",
+          "chrome-devtools-mcp@latest"
+        ]
       },
       "context7": {
         "type": "http",
@@ -55,11 +92,26 @@
     }
   },
   "plugins": {
-    "dirs": ["~/.agents/agents-plugin"],
+    "dirs": [
+      "~/.agents/agents-plugin"
+    ],
     "extraKnownMarketplaces": {
       "kicad-happy": {
-        "source": { "source": "github", "repo": "aklofas/kicad-happy" }
+        "source": {
+          "source": "github",
+          "repo": "aklofas/kicad-happy"
+        }
+      },
+      "shared-agents": {
+        "source": {
+          "source": "directory",
+          "path": "~/.agents/agents-plugin"
+        }
       }
+    },
+    "enabledPlugins": {
+      "shared-agents@shared-agents": true,
+      "shared-agents": true
     }
   }
 }
