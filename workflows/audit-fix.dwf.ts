@@ -31,6 +31,11 @@ args:
     description: Chemin relatif du plan d'audit à implémenter (ex.
       plan/2026-09-27-arch-plan.md).
     required: true
+  repoPath:
+    type: string
+    description: "Chemin du dépôt git cible quand il diffère du workspace courant
+      (les opérations git utilisent alors git -C <repoPath>). Vide = workspace."
+    required: false
   tasks:
     type: json
     description: "Tableau des tâches à implémenter, extraites du plan : [{id, title,
@@ -76,6 +81,10 @@ const planPath = String(args.planPath);
 const branch = String(args.branch);
 const auditType = String(args.auditType);
 const maxRounds = typeof args.maxRounds === "number" ? args.maxRounds : 3;
+const repoPath = typeof args.repoPath === "string" && args.repoPath.trim() !== "" ? args.repoPath.trim() : "";
+// When the target repository differs from the workspace, every git call is
+// redirected with -C so branch checks and commits hit the right repository.
+const gitArgs = (rest: string[]): string[] => (repoPath === "" ? rest : ["-C", repoPath, ...rest]);
 const rawTasks = args.tasks;
 if (!Array.isArray(rawTasks)) {
   throw new Error("args.tasks doit être un tableau de tâches [{id, title, details}]");
@@ -124,6 +133,7 @@ for (const task of tasks) {
     try {
       work = await impl.ask<ImplCheckpoint>(
         `Tâche ${task.id} — tentative ${attempt}/${maxRounds}. Plan: ${planPath}. Branche imposée: ${branch}. ` +
+          (repoPath === "" ? "" : `Le dépôt git cible est ${repoPath} (différent du workspace): exécute TOUTES tes opérations git avec git -C ${repoPath} …\n`) +
           `Tâche: ${task.title}\nDétails: ${task.details}\n` +
           (feedback === "none" ? "" : `Corrections demandées par le revalidateur au tour précédent: ${feedback}\n`) +
           `Applique le protocole: lis le plan, vérifie la branche, implémente CETTE tâche seulement, passe les vérifications, coche la tâche dans le plan, rends ton checkpoint. NE commite PAS.`,
@@ -138,7 +148,7 @@ for (const task of tasks) {
       }
       throw error;
     }
-    const branchCheck = await world.run("git", ["branch", "--show-current"]);
+    const branchCheck = await world.run("git", gitArgs(["branch", "--show-current"]));
     if (branchCheck.stdout.trim() !== branch) {
       outcome = {
         id: task.id,
@@ -170,7 +180,7 @@ for (const task of tasks) {
       const commitReply = await impl.ask<string>(
         "ACCEPTED par le revalidateur. Applique l'étape COMMIT ON ACCEPTANCE: git add -A puis exactement un commit. Réponds avec le hash du commit.",
       );
-      const head = await world.run("git", ["rev-parse", "HEAD"]);
+      const head = await world.run("git", gitArgs(["rev-parse", "HEAD"]));
       outcome = {
         id: task.id,
         status: "validated_committed",
