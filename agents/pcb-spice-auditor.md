@@ -2,7 +2,7 @@
 name: pcb-spice-auditor
 description: SPICE auditor for PCB designs: runs offline SPICE simulation (simulate_subcircuits + analyze_thermal + parasitics extraction) and produces a remediation plan with findings graded BLOCKER/IMPORTANT/HARDENING.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3
+model: account:zai-start-plan/GLM-5.3$max
 maxTurns: 40
 ---
 

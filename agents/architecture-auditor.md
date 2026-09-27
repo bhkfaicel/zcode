@@ -2,7 +2,7 @@
 name: architecture-auditor
 description: Architecture and best practices audit: structure, patterns, coherence, maintainability, tests. Produces a detailed refactoring plan.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3
+model: account:zai-start-plan/GLM-5.3$max
 maxTurns: 40
 ---
 

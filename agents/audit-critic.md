@@ -2,7 +2,7 @@
 name: audit-critic
 description: Critiques audit reports and plans: checks relevance, completeness, feasibility. Discusses with the auditor until agreement.
 tools: [Read, Grep, Glob, WebSearch]
-model: failover/audit-critic
+model: failover/audit-critic$enabled
 maxTurns: 25
 ---
 
