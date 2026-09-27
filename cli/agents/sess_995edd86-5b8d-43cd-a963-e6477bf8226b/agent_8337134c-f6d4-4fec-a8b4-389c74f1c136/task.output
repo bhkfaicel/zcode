@@ -1,0 +1,80 @@
+Investigation complete. All findings from `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs` (minified; identifiers are minified locals but function names survive via the `r(fn,"name")` registration calls, which is how I recovered them).
+
+# 1. Quota/billing errors — exact codes and distinguishability
+
+Yes, they are distinguishable at three layers.
+
+Layer A — model request failure descriptor (fields `{code, message, reason, retryReason, retryable, retryAfterMs, statusCode}`). Enum values (recovered from the `Cs`, `_s`, `Qc` object literals):
+
+- `Cs` codes: `invalid_model_selection`, `model_config_missing`, `provider_not_found`, `provider_not_configured`, `model_not_found`, `invalid_model_request`, `invalid_model_response`, `model_request_failed`, `model_request_auth_missing`, `model_request_cancelled`, `model_request_timeout`, `model_rate_limited`, `model_context_exceeded`
+- HTTP 429 mapping (exact): `{code:Cs.ModelRateLimited, message:"Provider rate limited the model request.", reason:_s.RateLimited, retryReason:Qc.RateLimited, retryable:!0, retryAfterMs:l, statusCode:o}` — note `retryable:true` and `retryAfterMs` parsed from `retry-after`.
+
+Layer B — provider business-code map `GDe` (providerCode string -> failure descriptor). Quota/billing codes are mapped to a non-retryable rate-limit descriptor `$Ns = {code:Cs.ModelRateLimited, reason:rate_limited, retryable:false}`:
+
+```
+["insufficient_quota","credit_balance_exhausted","organization_spend_limit_exceeded",
+ "project_spend_limit_exceeded","organization_usage_limit_exceeded",
+ "exceeded_current_quota_error","2056","20097","1316","1317","1318","1319","1320","1321"]
+```
+plus `["1008","1314","1315"]` -> `{code:model_request_failed, reason:unknown, retryable:false}`. The workflow hard-stop set `I4s` (quota decision) is:
+```
+["1005","1308","1310","1313","1316","1317","1318","1319","1320","1321","2056","20097",
+ "insufficient_quota","credit_balance_exhausted","organization_spend_limit_exceeded",
+ "project_spend_limit_exceeded","organization_usage_limit_exceeded","exceeded_current_quota_error"]
+```
+The raw `providerCode` string is preserved on the error, so `providerCode === "insufficient_quota"` (or the numeric codes) is the most precise discriminator; `code === "model_rate_limited"` alone is ambiguous (429 rate limit vs quota both map there).
+
+Start Plan specifics: for providerIds `account:bigmodel-start-plan` and `account:zai-start-plan`, providerCodes `3008/3009/3010` mean "busy" — auto stream recovery with delays `[1000, 2000]` ms up to `wIo=10` times, then a thrown error with `name:"StartPlanBusyAutoRetryExhaustedError"`, `code:"model_rate_limited"`, `context:{providerCode, reason:"rate_limited", retryable:false, startPlanBusyAutoRetryExhausted:true}`, message `"Start Plan is busy and automatic model stream recovery reached the maximum retry count."`. Captcha rejection is providerCode `"3007"`. Other plan errorCategories seen: `eligibility_3101` (coding_plan_required) and `quota_3103` (idle-time/off-peak quota, message "The idle-time task quota is used up for now...").
+
+Layer C — workflow-normalized shape (`Vis` zod schema, used in `get_workflow_run` results and run failure_json):
+```
+error: { code: string, message: string,
+  providerStop?: { kind: enum ["auth","not_configured","model_unavailable","invalid_request","quota","other"],
+    reason, providerId?, providerLabel?, modelId?, providerCode?, subagent?, subagentName?,
+    phase?, rawMessage?, resetAt? } }
+```
+Quota exhaustion surfaces as `providerStop.kind === "quota"`. Guidance string for that kind: "`${provider} reports the user's quota is exhausted (code ${f}).` / `Ask the user to top up or upgrade the plan, or switch to another provider, ${g}.`". `resetAt` is set from the provider's `retryAfterMs` when kind is quota.
+
+# 2. Subagent model errors in dynamic workflows — typed and catchable
+
+The ask driver has `handleModelTurnFailure` (`iWo`), which calls `inspectWorkflowModelFailure` (`nVr`) -> `resolveWorkflowModelFailurePolicy` (`tVr`). The policy function, verbatim:
+
+```js
+function tVr(e,t){ // e={code,reason,retryable}, t=providerCode
+  return e.reason===_s.Cancelled ? {decision:"cancelled"}
+   : t!==void 0 && I4s.has(t)     ? {decision:"stop",kind:"quota"}
+   : e.reason===_s.AuthFailed     ? {decision:"stop",kind:"auth"}
+   : e.reason===_s.ProviderNotConfigured||C4s.has(e.code) ? {decision:"stop",kind:"not_configured"}
+   : e.code===Cs.ModelNotFound    ? {decision:"stop",kind:"model_unavailable"}
+   : e.reason===_s.ContextExceeded? {decision:"context_exceeded"}
+   : e.reason===_s.InvalidRequest && e.code!==Cs.InvalidModelResponse ? {decision:"stop",kind:"invalid_request"}
+   : {decision:"retry"}}
+```
+(`C4s` = `{provider_not_found, provider_not_configured, model_config_missing, invalid_model_selection, model_request_auth_missing}`.)
+
+Outcome per decision:
+- `"stop"` -> the ask's promise rejects with a typed `WorkflowError` (class `name="WorkflowError"`): `new Oi("ProviderStop", \`Subagent ${label} hit a permanent model-side error (${reason}${providerCode ? " ["+providerCode+"]" : ""}): ${rawMessage}\`, {cause, providerStop:{kind, reason, subagent, subagentName?, providerId?, modelId?, providerCode?, rawMessage?, resetAt?}})`. So a quota failure rejects with `err.code === "ProviderStop"` and `err.providerStop.kind === "quota"`.
+- `"context_exceeded"` -> `WorkflowError` code `"ContextLimit"`, message "Subagent ${label} exceeded the model's context window even after compaction. Give this ask a smaller input or split the work across subagents."
+- `"cancelled"` -> code `"Cancelled"`.
+- `"retry"` -> handled internally (see section 4), never surfaced to the script.
+
+`WorkflowError` fields: `code`, `message`, `violations?`, `finalText?`, `mismatch?`, `providerStop?`, `cause`; has `toJSON()`/`fromJSON()`, and journal replay re-throws the same error (`throw Oi.fromJSON(_.error)`). Other observed codes: `"DriverError"`, `"ValidationFailed"`, `"ResultNotSubmitted"`, `"InputHashMismatch"`, `"Interrupted"`, artifact-related ones. So `try { ... } catch (e) { if (e.code === "ProviderStop" && e.providerStop?.kind === "quota") ... }` is the intended catch shape.
+
+If the script does not catch it, the node is marked failed (`node_failed` event with payload `{attempts, retry}` and `message` = error text), and the run settles `status:"errored"` with `failure_json` = `{code, message, providerStop?}` — the same shape is exposed in `get_workflow_run` results and task notifications (`<error code="...">` plus per-kind guidance).
+
+# 3. `subagent_model` semantics
+
+- CreateWorkflow schema: `subagent_model: G.string().trim().min(1).optional()` described as "Model for the subagents (`providerId/modelId` or a model id). Only when the user asks; you stay on the session model." AmendWorkflow makes it nullable: "Omit to keep the predecessor's choice, null for the session model, a model id to set one".
+- Parsing: `parseModelPickerValue` (`vz`) handles `providerId/modelId` (so `account:zai-start-plan/GLM-5.3-Flash` parses to providerId `account:zai-start-plan`, modelId `GLM-5.3-Flash`); a bare model id is resolved against the model catalog via `resolveModelReference` (`s0t`, case-insensitive exact match on `modelId`, with ambiguity and disabled-entry checks). `"failover/..."` is not a built-in provider — the string "failover" has zero occurrences in the bundle; it would have to be an actual configured providerId in the catalog.
+- Unknown model id: validation is eager at CreateWorkflow/AmendWorkflow, before any subagent runs. It fails with `{errorCode: 23 (VA.SUBAGENT_MODEL), message: "workflow_subagent_model_unresolved: ${message} Nothing was stopped or created."}` where the not-found message is: "No configured model matches \`${id}\`. Available models: ...\n\nPass one of these ids, or call ListModels." (or "No models are configured on this host."). Ambiguous match and disabled models also fail. If the host has no catalog: `errorCode CATALOG_UNAVAILABLE`, "model_catalog_unavailable: this session cannot list models — the host did not provide a model catalog. ... Omit `subagent_model` ..." and `mbn = "This host cannot choose a subagent model; omit subagent_model."`. There is no silent fallback — an invalid id aborts the call.
+- At runtime the resolved value flows as `subagentModelOverride` -> subagent launch `{modelOverride: ...}`; the resolved `providerId/modelId` is persisted on the run (`dwf_actor.resolved_model`, run `subagentModel`).
+
+# 4. Built-in retry behavior (interference with script-level catch/retry)
+
+There are three internal retry layers, all below the script:
+
+- Model-request retry (every model call, including subagents): defaults `{backoffFactor:2, baseDelayMs:2000, jitter:true, maxAttempts:11, maxDelayMs:60000}`, overridable via env `ZCODE_MODEL_RETRY_MAX_RETRIES`, `ZCODE_MODEL_RETRY_BASE_DELAY_MS`, `ZCODE_MODEL_RETRY_BACKOFF_FACTOR`, `ZCODE_MODEL_RETRY_MAX_DELAY_MS`. Retries anything with `retryable:true` (429, timeouts, 5xx, network). The Vercel AI SDK layer beneath also retries (default `maxRetries: 2`, retryable on 408/409/429/>=500; throws "Failed after N attempts...").
+- Workflow ask transient redrive (`scheduleTransientRedrive` / `xWa`): when the policy decision is `"retry"`, the ask stays pending, `transientAttempts` increments, and the turn is re-run after backoff (`wWa=2000` base, `kWa=60000` max) or the provider's `retryAfterMs`. Observable only as an `askWaiting` status `{cause:"backoff", reason, attempt, delayMs, retryAfterMs?}` and log event `dynamic_workflow.ask.transient_redrive`. No cap on `transientAttempts` is visible in the redrive scheduler itself (the retry-budget helper `retryBudgetAllows` treats the workflow budget `Unbounded` as unlimited).
+- Start Plan busy recovery (section 1): up to 10 stream-recovery retries at 1000/2000 ms before surfacing `StartPlanBusyAutoRetryExhaustedError`.
+
+Implication for the planned try/catch/fallback script: transient 429s and busy responses will be retried internally and may take a long time before surfacing (11 attempts x exponential backoff + redrive), so a script-level catch will only fire for terminal failures — which is exactly the quota case (`providerCode` in the `I4s` set -> `ProviderStop` with `kind:"quota"`, not retried internally). Catching `e.code === "ProviderStop" && e.providerStop?.kind === "quota"` and re-launching with a different `subagent_model` is the designed pattern; re-trying the same quota-dead model is pointless because the failure policy will stop again immediately (and `resetAt` in `providerStop` tells you when the quota window resets). Note the redrive/backoff means a script-level "catch then retry same model" loop would also double up on internal retries, so prefer switching models rather than retrying.

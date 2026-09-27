@@ -53,6 +53,47 @@ check("quoted semicolon passes", is_denied('echo "x; y"'), None)
 check("quoted pipe passes", is_denied('grep "foo|bar" f'), None)
 check("quoted double ampersand passes", is_denied('git commit -m "fix && polish"'), None)
 
+# Executable-candidate resolution: path prefixes, quoting contexts and
+# wrapper prefixes must not hide the direct command word
+check("absolute path /bin/rm", is_denied("/bin/rm -rf x") is not None, True)
+check("relative path ./rm", is_denied("./rm -rf x") is not None, True)
+check("path prefix with quoted component", is_denied("/bin/'rm' -rf x") is not None, True)
+check("single-quoted rm", is_denied("'rm' -rf x") is not None, True)
+check("double-quoted rm", is_denied('"rm" -rf x') is not None, True)
+check("ANSI-C quoted rm", is_denied("$'rm' -rf x") is not None, True)
+check("empty quote pair inside word", is_denied("r''m -rf x") is not None, True)
+check("unquoted backslash escape", is_denied("r\\m -rf x") is not None, True)
+check("leading backslash escape", is_denied("\\rm file") is not None, True)
+check("sudo with spaced option operand", is_denied("sudo -u root rm -rf x") is not None, True)
+check("sudo with long option=value", is_denied("sudo --user=root rm -rf x") is not None, True)
+check("env with assignment prefix", is_denied("env FOO=1 rm -rf x") is not None, True)
+check("env with unset option", is_denied("env -u FOO rm -rf x") is not None, True)
+check("leading assignment", is_denied("FOO=1 rm -rf x") is not None, True)
+check("time wrapper", is_denied("time rm -rf x") is not None, True)
+check("time keyword -p flag", is_denied("time -p rm -rf x") is not None, True)
+check("time -o with file operand", is_denied("time -o /tmp/t.txt rm -rf x") is not None, True)
+check("nice with adjustment operand", is_denied("nice -n 5 rm -rf x") is not None, True)
+check("stdbuf with stream operand", is_denied("stdbuf -o L rm -rf x") is not None, True)
+check("command wrapper with path", is_denied("command /bin/rm -rf x") is not None, True)
+
+# Backslash preservation per quoting context: the shell does NOT run rm
+# for these (under Bash 5.3 they name a program literally called r\m),
+# so they must stay unnormalized and pass
+check("single quotes keep backslash", is_denied("'r\\m' -rf x"), None)
+check("double quotes keep backslash", is_denied('"r\\m" -rf x'), None)
+
+# Additional negatives: options and paths of benign commands stay untouched
+check("absolute path to benign binary", is_denied("/usr/bin/git status"), None)
+check("git config-style option", is_denied("git -c foo=bar status"), None)
+check("option-looking argument after benign command", is_denied("echo --user rm"), None)
+
+# Documented accepted limits, pinned as passing today (the guard does not
+# resolve parameter expansion or aliases; a real shell lexer would be
+# required). If one of these ever fails, the resolution grew past the
+# documented limits and the module documentation must be revisited.
+check("limit: parameter expansion in arguments", is_denied("echo ${X}rm"), None)
+check("limit: alias-style indirection", is_denied("myalias rm -rf x"), None)
+
 # Payload extraction
 check("tool_input.command", extract_command({"tool_input": {"command": "ls"}}), "ls")
 check("input.command", extract_command({"input": {"command": "ls"}}), "ls")

@@ -14,9 +14,17 @@ Protocol (ZCode hooks):
 Matching is segment-aware: the command is split on &&, ||, ;, |, a lone &
 (background separator), newline and carriage return, and every segment is
 tested, so `cd /tmp && rm -rf x` is caught too.
+
+For every segment the executable candidate is resolved first: leading
+NAME=VALUE assignments and a leading run of supported wrapper commands
+(sudo, env, nohup, command, time, nice, setsid, stdbuf) together with
+their options are skipped, and the first token that survives is compared
+to the deny-list through quoting-context candidates (the raw token, its
+basename, and the shell-resolved form of each supported quoting style).
 """
 
 import json
+import os
 import re
 import sys
 
@@ -38,23 +46,208 @@ DENY_FIRST_TOKENS = (
 # remaining POSIX command separators and end a segment as well.
 SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|&\r\n]")
 
+# Supported wrapper commands: when they lead a segment they are skipped so
+# the executable candidate behind them is inspected. Selected subset; the
+# wrapper-parsing residuals (unknown operand-taking options are missed,
+# wrapper-terminating options can conservatively over-block) are documented
+# module limits.
+WRAPPER_TOKENS = frozenset(
+    {"sudo", "env", "nohup", "command", "time", "nice", "setsid", "stdbuf"}
+)
 
-def first_token(segment: str) -> str:
-    """First word of a segment, with a leading env/sudo wrapper stripped."""
-    tokens = segment.strip().split()
-    for token in tokens:
-        if token in ("sudo", "env", "nohup", "command"):
+# Selected subset of wrapper options that consume a separate operand token:
+# when such an option is skipped, the token right after it (the option
+# operand) is skipped too. Pinned from the host documentation and
+# deliberately NOT exhaustive: platform-dependent sudo options and future
+# wrapper options are outside the table. Wrappers absent from this table
+# (nohup, command, setsid) take no spaced operand in the supported subset.
+WRAPPER_OPERAND_OPTIONS = {
+    "sudo": frozenset(
+        {
+            "-u",
+            "-g",
+            "-p",
+            "-C",
+            "-r",
+            "-t",
+            "--user",
+            "--group",
+            "--prompt",
+            "--close-from",
+            "--role",
+            "--type",
+        }
+    ),
+    "env": frozenset({"-u", "--unset"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "stdbuf": frozenset({"-o", "-e", "-i", "--output", "--error", "--input"}),
+    # The external /usr/bin/time takes -o FILE and -f FORMAT while the
+    # shell keyword `time` only takes the operand-less -p; the table
+    # covers both frontends.
+    "time": frozenset({"-o", "-f", "--output", "--format"}),
+}
+
+# Leading NAME=VALUE environment assignment (shell identifier rules: a
+# letter or underscore first, then letters, digits or underscores; the
+# value part is anything up to the end of the token, possibly empty).
+ASSIGNMENT_PREFIX = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+# Backslashes a POSIX double-quoted string actually removes: only those
+# directly preceding $, backtick, double quote, backslash or newline.
+# Every other backslash is literal there ("r\m" names a program r\m, not
+# rm, so it must not be normalized to rm).
+_DOUBLE_QUOTE_ESCAPABLE = frozenset({"$", "`", '"', "\\", "\n"})
+
+
+def executable_candidate(tokens):
+    """Resolve the executable candidate of one segment from its tokens.
+
+    Inside the leading run the following tokens are skipped: supported
+    wrapper commands, NAME=VALUE assignment tokens, and '-'-prefixed flag
+    tokens (flags are skipped whether or not a wrapper was seen; a real
+    command name starting with a dash is contrived and over-blocking it
+    is the documented safe direction). When a flag token exactly matches
+    the current wrapper's operand-option table, the token right after it
+    (the option operand) is skipped as well. A self-contained
+    '--opt=value' flag is skipped as a single token. The first token that
+    survives the run is the executable candidate; None is returned when
+    every token is consumed by the leading run.
+    """
+    current_wrapper = None
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in WRAPPER_TOKENS:
+            current_wrapper = token
+            i += 1
+            continue
+        if ASSIGNMENT_PREFIX.match(token):
+            i += 1
+            continue
+        if token.startswith("-"):
+            # An operand-taking option hides one extra token; a flag that
+            # is not in the current wrapper's table is skipped alone.
+            if token in WRAPPER_OPERAND_OPTIONS.get(current_wrapper, ()):
+                i += 2
+            else:
+                i += 1
             continue
         return token
-    return ""
+    return None
+
+
+def _double_quote_unescape(content):
+    """Remove the backslashes a POSIX double-quoted string removes.
+
+    Only a backslash directly preceding $, backtick, double quote,
+    backslash or newline is dropped; any other backslash stays, because
+    it is not special inside double quotes ("r\m" runs r\m, not rm).
+    """
+    out = []
+    i = 0
+    while i < len(content):
+        ch = content[i]
+        if ch == "\\" and i + 1 < len(content) and content[i + 1] in _DOUBLE_QUOTE_ESCAPABLE:
+            i += 1  # drop the backslash, keep the escaped character
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _resolve_unquoted_word(token):
+    """Resolve a word that is not fully quoted, mirroring shell quote
+    removal for the supported mixed forms.
+
+    - A quoted section whose content holds no backslash contributes its
+      content with the quotes removed (r''m -> rm, /bin/'rm' -> /bin/rm):
+      this is how the shell concatenates quoting sections of one word.
+    - A quoted section containing a backslash is kept verbatim: backslash
+      handling inside quotes is context-sensitive and stripping it could
+      over-normalize (r'\m' must stay unnormalized, the shell runs r\m).
+    - An unquoted backslash escapes the next character: the backslash is
+      removed and the next character kept (r\m -> rm, \rm -> rm).
+    - An unpaired quote leaves the word unresolved (None): the shell
+      would not execute such a word as written (unterminated quote).
+    """
+    out = []
+    i = 0
+    while i < len(token):
+        ch = token[i]
+        if ch in ("'", '"'):
+            end = token.find(ch, i + 1)
+            if end == -1:
+                return None  # unpaired quote: keep the token unnormalized
+            if "\\" in token[i + 1:end]:
+                out.append(token[i:end + 1])  # context-sensitive: keep verbatim
+            else:
+                out.append(token[i + 1:end])
+            i = end + 1
+        elif ch == "\\":
+            if i + 1 < len(token):
+                out.append(token[i + 1])  # escaped character, backslash dropped
+                i += 2
+            else:
+                i += 1  # trailing backslash contributes nothing
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def deny_candidates(token):
+    """Build the set of deny-comparison candidates for one executable token.
+
+    Quoting rules mirror what the shell actually executes per context
+    (GNU Bash 5.3): a fully single-quoted token contributes its literal
+    content with backslashes untouched ('r\m' stays r\m); a fully
+    double-quoted token contributes its content with the POSIX selective
+    backslash removal ("r\m" stays r\m); a $'...' token contributes its
+    content only when it holds no backslash ($'rm' -> rm; ANSI-C content
+    with escapes stays unnormalized, a documented lexical limit); any
+    other token is treated as an unquoted/mixed word. os.path.basename is
+    applied to every candidate so path prefixes (/bin/rm, ./rm) and
+    path-prefixed quoted components (/bin/'rm') resolve to the bare name.
+    """
+    candidates = {token}
+    if (
+        len(token) >= 2
+        and token[0] == "'"
+        and token[-1] == "'"
+        and "'" not in token[1:-1]
+    ):
+        # Fully single-quoted: literal content, backslashes NOT touched.
+        candidates.add(token[1:-1])
+    elif len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        # Fully double-quoted: selective POSIX backslash removal.
+        candidates.add(_double_quote_unescape(token[1:-1]))
+    elif token.startswith("$'") and token.endswith("'") and len(token) > 3:
+        # ANSI-C quoting, modeled only without escapes; content holding a
+        # backslash stays unnormalized (documented lexical limit).
+        content = token[2:-1]
+        if "\\" not in content:
+            candidates.add(content)
+    else:
+        resolved = _resolve_unquoted_word(token)
+        if resolved is not None:
+            candidates.add(resolved)
+    # basename of every candidate (the raw token included)
+    forms = set()
+    for candidate in candidates:
+        forms.add(candidate)
+        forms.add(os.path.basename(candidate))
+    return forms
 
 
 def is_denied(command: str) -> str | None:
     """Return the offending token when the command must be blocked."""
     for segment in SEGMENT_SPLIT.split(command or ""):
-        token = first_token(segment)
-        if token in DENY_FIRST_TOKENS or token == "mkfs" or token.startswith("mkfs."):
-            return token or segment.strip()
+        candidate = executable_candidate(segment.strip().split())
+        if candidate is None:
+            continue
+        for form in sorted(deny_candidates(candidate)):
+            if form in DENY_FIRST_TOKENS or form == "mkfs" or form.startswith("mkfs."):
+                return form
     return None
 
 

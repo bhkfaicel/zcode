@@ -1,0 +1,128 @@
+I have read the full SKILL.md (1521 lines), patterns.md (460 lines), and the relevant parts of examples.md (801 lines) in `/Applications/ZCode.app/Contents/Resources/glm/packages/bundled-skills/skills/dynamic-workflows/`. Here is the precise report.
+
+# 1. Script facade / API
+
+## agent() — exact signature (SKILL.md §16.2, facade block, lines 997–1023)
+
+```ts
+declare interface Agent {
+  /**
+   * Assign one task. T is the task's output value: an interface you define in
+   * this script with a plain "interface" declaration (no "declare" modifier; the
+   * harness synthesizes its runtime schema from the type), or the final response
+   * text when the type argument is omitted.
+   */
+  ask<T = string>(instructions: string): Node<T>;
+}
+
+declare function agent(name?: string, persona?: string | AgentPersona): Agent;
+
+declare interface Node<T> extends PromiseLike<T> {}
+
+declare interface AgentPersona {
+  /** System prompt describing the actor's role. */
+  system?: string;
+}
+```
+
+Key facts:
+
+- **`agent()` takes exactly two optional parameters: `name?: string` and `persona?: string | AgentPersona`. There is no options object and no per-agent model option.** §2 states: "Every subagent has the same tools — reading, searching, editing, running commands — and runs on the session's model; there is no per-subagent tool profile or model choice. … None of this can change after `agent()` — there is no per-task override."
+- **`subagent_model` is not a script API at all.** It is a field of the `CreateWorkflow` and `AmendWorkflow` tools (§16.1, lines 960–963), quoted verbatim:
+
+  > `subagent_model`: the model the subagents run on, as `providerId/modelId` or a bare model id (optionally `$reasoningLevel`). Set it only when the user asks for a specific model; pass the name the user used, and if the tool cannot resolve it, pick from the ids it lists or call `ListModels`. You stay on the session model either way.
+
+  So yes: `providerId/modelId`, and a bare model id is also accepted, optionally suffixed `$reasoningLevel`. It applies run-wide to all subagents. `AmendWorkflow` can change it later: "omit to keep the predecessor's choice, pass `null` to put the subagents back on the session model, pass a model id to change it (only when the user asks). `ListModels` lists the ids." (§16.4, line 1426).
+- **Typing results**: `ask<T>` where T is a plain `interface`/`type alias` defined in the script (harness synthesizes the runtime schema; JSDoc on properties becomes the field description the subagent reads — §4). Omitting T yields `string` (the final response text). `Node<T>` is `PromiseLike<T>`, so `await ask<T>(...)` gives a `T`.
+- **Final output**: there is no `report()` for the final result. The script's final `return <value>` is the output — "Top-level `await` and a final `return <value>` are allowed; the returned value is exactly what the completion notification carries" (§16.3). No `export`/`import` statements. §10 prescribes the return shape (`WorkflowReport { conclusion; findings: Finding[]; verified: string[]; notCovered: string[] }` with `Finding { where; what; evidence; status: "verified" | "unconfirmed"; severity }`) and says "Returned a bare array" is an anti-pattern.
+- **`report()` is intermediate journaling, not final output**: `declare function report(item: unknown, artifactId?: string): void;` — void, nothing to await; journaled (a resumed run never shows the same item twice); delivered with the completion notification "even when the run ends in failure"; JSON-serializable items only; caps of 256 items/run and 32KB/serialized item, both of which fail the whole run. The optional second arg routes the item to a declared dashboard artifact (chart/table/metrics/board).
+- Rest of the facade: `args: Readonly<Record<string, unknown>>` (typed unknown, narrow in-script), `log(message: string): void`, `phase(name: string): void`, `artifact.{file,markdown,chart,table,metrics,board}`, `files.{glob,read,grep}`, `git.{changedFiles,diff,status,log}`, `world.run`.
+
+# 2. Error semantics (this is the load-bearing part for model failover)
+
+SKILL.md §16.3 (lines 1385–1393), verbatim:
+
+> **Model-side errors never reach the script.** Rate limits, concurrency limits, overload, network errors, timeouts and unknown provider errors are retried by the runtime without limit while it adapts the fan-out to what the provider accepts; a deterministic one (expired sign-in, model not in the plan, quota cap, invalid request) stops the whole run as `stopped` so the user can fix the cause and resume it. So do not write retry loops or `try`/`catch` for provider errors. Reserve them for logic failures — a subagent result that failed validation, a gate that did not pass, a world read over its cap, an artifact publish whose source file is missing, or a `ContextLimit` (the ask was too large for the model's context even after compaction: split the work or send less).
+
+patterns.md §8 (lines 349–357) reinforces:
+
+> A `try`/`catch` around a single task turns one **logic** failure … into a partial result instead of a dead run. It is not for provider errors: model-side errors never reach the script. Transient ones (rate limits, overload, network errors, timeouts, unknown provider errors) are retried by the runtime without limit; deterministic ones (sign-in expired, model not in the plan, quota cap) stop the whole run as `stopped` so the user can fix the cause and resume it. **A retry loop around an ask for their sake is dead code.** The one model-adjacent error a script can catch is `ContextLimit`.
+
+Precise semantics:
+
+- **`agent(...).ask(...)` can reject, catchable with try/catch** — but only for the logic-failure class above (validation failure of the typed result, `ContextLimit`, etc.). The skill's own example (examples.md lines 433–451) wraps `ask` in `try { ... } catch (error) { log(...); report(...); return { path, error: String(error) }; }` per item.
+- **The error object shape is unspecified**; the example only does `String(error)` and `log(\`skipped ${path}: ${String(error)}\`)`. No typed error classes beyond the name `ContextLimit` are documented.
+- **Quota exhaustion / sign-in expiry / model-not-in-plan never throw into the script.** They stop the whole run: terminal state `stopped` with `<stop-reason>provider` — "a subagent hit a deterministic model-side error — sign-in expired, model not in the plan, quota cap; the `<error>` block names the cause and the fix — resolve it with the user, then resume" (§13, lines 772–776). Recovery is `ResumeWorkflowRun` after the user fixes the cause, or `AmendWorkflow` with a corrected script — never something the script handles.
+- **Transient provider errors** (rate limits, overload, network, timeouts, unknown provider errors) are retried inside the runtime without limit; the run shows a "waiting for provider" badge, and after twenty minutes of nothing succeeding you get one informational stall notification — "the run is still running and needs nothing from you" (§13, lines 779–783). "The runtime adapts the fan-out to what the provider accepts."
+- **Conclusion for your design**: the skill's contract explicitly rules out in-script automatic model failover. There is no per-agent model parameter, no model-error visibility, and a retry loop for provider errors is called dead code. Failover is a runtime concern (unlimited internal retries, fan-out adaptation) or a human/main-agent concern (`AmendWorkflow` with a new `subagent_model` — §16.4 notes changing only `max_concurrency` or `subagent_model` counts as a real change and goes through the `script_unchanged` guard).
+- One rejection inside `Promise.all` rejects the whole join and siblings; per-item isolation is via try/catch inside the map callback or `Promise.allSettled` (§7, patterns.md line 458–460).
+
+# 3. Interaction with the user (escalation)
+
+The script has no API to pause or ask the user. Interaction is subagent-initiated escalation (§14, lines 861–906):
+
+- "Every subagent can escalate a blocking question to you while the run is going. Nothing in the script switches this on and no persona field controls it — the tool is injected the way `submit_result` is." It exists for "a gate it cannot pass, two instructions no single output satisfies, or a fact only whoever started the run knows."
+- A mid-run notification arrives carrying the run, the subagent, the question with attached evidence, and a globally unique question id shaped like `dwfq-...`. **Only the subagent that asked is parked, and only on that one call**; its siblings, the script's control flow and the run's status carry on unchanged. Nothing times out — it waits until answered or the run is cancelled.
+- The main agent answers with `ResolveWorkflowQuestion` and the `question_id`: "Your text becomes the result of the subagent's own call, verbatim, and it continues its turn from there." If unsure, the main agent can relay to the user via `AskUserQuestion`, or read `GetWorkflowRun` (`pendingQuestions` lists what a run still owes an answer to, ids included — the fallback if the notification is dropped).
+- If the script itself is broken, the fix is `AmendWorkflow`, not an answer — the escalated ask never settled, so it sits exactly past the cache boundary.
+- Rate limit: "One ask gets three escalations. The fourth comes back as an ordinary result telling the subagent its escalation allowance is spent and to proceed on its own best judgement."
+- Recommended persona line: *"If a check is impossible to pass, or your instructions contradict each other, escalate and say so plainly rather than working around it."*
+
+# 4. Control flow
+
+- **Full plain TypeScript in a function body**: `for`/`while` loops, `if`/`switch`, top-level `await`, helpers, `Promise.all`, `Promise.allSettled`. §1: the shapes workflows are good at are "results feeding later steps (pipelines, fan-out then fan-in), a loop with a stopping condition, and control flow branching on a typed result."
+- **Loops must be bounded by convention, not enforcement**: "the harness enforces no node limit, so a loop that never goes dry only ends when the user cancels" (§10); "An unbounded `while` — the run dies on a cap instead of finishing" is listed as an anti-pattern (actually the run only ends when the user cancels; the anti-pattern table says the run dies on a cap — either way, round caps are required by the skill).
+- **Fan-out**: `Promise.all(items.map((i) => agent(\`id-${i}\`).ask<T>(...)))` — concurrent; parallelism comes from *not awaiting yet*; `Promise.all` is a barrier/join, so chain per-item stages inside the callback and join once (§7). Shared-context serialization: asks on one `agent()` reference queue FIFO (§2).
+- **`max_concurrency`** (§16.1, lines 955–959): "an upper bound on how many subagents work at once. Set it only when the user asks to limit parallelism — never on your own initiative and never as a reaction to provider rate limits or errors, which the runtime already adapts to. A value above the machine's ceiling is lowered to it. Otherwise how many subagents run at once is the runtime's decision, not the script's."
+- **No nesting**: "Subagents cannot call `CreateWorkflow`."
+- Compiler constraints (§16.3): `strict` with `noUncheckedIndexedAccess` off; never use the `declare` modifier; no `import`/`export`; no Node or web APIs — "`process`, `fetch`, `fs` do not exist and fail typechecking"; `Date.now()` / `Math.random()` / `fetch` / `fs` are "rejected at compile time; a replayable run cannot contain them" (§12). Dependency graph is recovered by static analysis — results must flow through plain variables/interpolation/destructuring, not stashed containers ("analyzability diagnostic").
+- Phases are mandatory: `phase("...")` compile-time literal, standalone statement, claims the rest of its enclosing block; every phase must contain at least one `ask` or one `world.run`; no marker inside concurrent fan-out callbacks.
+
+# 5. world.run gates, other constraints, saved workflows
+
+## world.run (exact facade, lines 1313–1345)
+
+```ts
+declare interface WorldRunResult {
+  /** The process exit code. Nonzero is a normal, returned outcome — branch on it. */
+  exitCode: number;
+  /** Captured stdout (UTF-8). Capped at 256KB; over the cap the call rejects. */
+  stdout: string;
+  /** Captured stderr (UTF-8). Same cap and rejection semantics as stdout. */
+  stderr: string;
+}
+
+declare const world: {
+  run(cmd: string, args?: string[], opts?: { timeoutMs?: number }): Promise<WorldRunResult>;
+};
+```
+
+- "A completed process with a NONZERO exit code RESOLVES to a WorldRunResult — a failing check is the gating loop's normal case and must not travel exception control flow. The promise only rejects (catchably) when the command could not run as an observation at all: spawn failure, or timeout (default 300000ms, override per call via timeoutMs, no upper cap)."
+- `cmd` must be a compile-time string literal (user approves the command set at confirmation); runtime values go in the args array. Fixed argv, no shell/pipes/redirection. cwd is the workspace.
+- Gate discipline (§5): two tiers — a fast tier may drive loop rounds; "the strongest tier the request implies decides the exit, and it runs for real at least once before the final `return`". Pick gates by reading the repository (`package.json`, `Makefile`, CI, README), never from habit.
+
+## Other hard constraints
+
+- Unique non-empty subagent names per run: "no two subagents in one run may share a non-empty name — a duplicate fails the whole run"; literal duplicates are caught at compile time, computed ones fail the run at runtime (§2). Names are also the AmendWorkflow cache key.
+- Artifact ids and `report` tags are compile-time string literals; one id per kind per run; at most one `primary: true`; caps: 32 ids/run, 16 versions/id, 20 MiB/file, 256 KB/markdown.
+- Content publishes (`artifact.file`/`markdown`) are async, resolve to `ArtifactRef { id: string; version: number }`, and reject catchably (missing file, path outside workspace, over cap) — "a rejected publish is a repair opportunity, not an error to swallow" (§10).
+
+## Saved workflows (§16.1, §16.5)
+
+- Run by name: `saved: { name: "pr-review", args: { pr: "123" } }` on `CreateWorkflow`. "Its arguments are validated against its declaration (unknown keys, missing required values and wrong types are rejected) before anything runs." "Running a saved workflow is the one call that does not need this skill loaded."
+- Saved via `SaveWorkflow` to `.zcode/workflows/<name>.dwf.ts` (project) or `~/.zcode/workflows/<name>.dwf.ts` (global). Valid TypeScript: a `/* zcode-workflow` YAML metadata block, then the script verbatim. Args are declared with `type` (`string` | `number` | `boolean` | `json`), optional `description`, `required: true`, `default`; "what lands [in `args`] is always a complete, checked bag"; values are typed `unknown` in the script and must be narrowed there.
+- `CreateWorkflow` takes exactly one of `script` (inline, saved under `.zcode/workflow-drafts/`), `saved`, or `path`; plus `name`, `max_concurrency`, `subagent_model`. Always user-confirmed, showing the actual script.
+
+# 6. Caching / resume semantics
+
+- **Terminal states** (§13): `completed` (returned), `errored` (uncaught throw, cap overrun, missing artifact source — "Replaying it would fail the same way, so `ResumeWorkflowRun` refuses it; edit the run's script file … and resubmit it with `AmendWorkflow` and `path`"), `stopped` (resumable as-is via `ResumeWorkflowRun`; stop reasons: `user`, `model`, `interrupted`, `provider`, and `superseded` which never notifies).
+- **Journal/replay**: `files.*`, `git.*` and `world.run` are journaled, executed by the harness, and replayed from the record on resume ("resume is crash recovery, not re-verification" for world.run). `report()` items are journaled — a resumed run never re-emits the same item, and items survive failed runs.
+- **AmendWorkflow import cache** (§13 + §16.4): any run — errored, completed, stopped, or still running — can be superseded by `AmendWorkflow` with `run_id` + edited `path`/`script`. The new run "imports the old one's finished work, matched per named subagent along its sequence of asks". Matching rule (§16.4, lines 1434–1441): "Named subagents are matched by name across the two scripts; each one's asks are matched in order by byte-identical instructions. A match settles from the recorded result at zero tokens; a changed or added ask runs live."
+- **Cache invalidation on write**: "The cache stays open until a live subagent makes its first write to the workspace (or a live `world.run` executes): from that moment, cached world reads and cached asks whose subagent had read or run something would describe a workspace that no longer exists, so they run live too. Asks that only answered keep settling from the cache."
+- **Cache-hostile patterns**: interpolating script constants into ask text — "every ask whose text mentions one is an ask whose cache you forfeit by tuning it, plus everything downstream"; interpolating upstream *results* is safe (they replay byte-identical). Keep tunables (thresholds, round caps) in script control flow.
+- **`script_unchanged`**: a `path` whose bytes equal what the run already ran is refused, "with nothing stopped and nothing created — that refusal means your `Edit` did not land, not that the run cannot be amended (changing only `max_concurrency` or `subagent_model` is a real change and goes through)." You can also omit both `path` and `script` to change only settings.
+- **Amending a running run**: the tool stops the predecessor, waits for it to settle, imports everything that settled before the stop at zero cost, and starts the revision. In-flight asks re-run in the new run, "except that a named subagent whose unfinished ask you did not change picks that ask up where it left off". Sole exception: a call carrying nothing but `run_id` and `max_concurrency` against a still-running run retunes it in place. Confirmation: runs this session started are amended without a window; user-stopped or other-session runs ask first.
+
+# Design implication for automatic model failover
+
+Everything in the contract pushes failover out of the script: (a) `agent()` has no model parameter — model choice is run-wide via `CreateWorkflow`/`AmendWorkflow` `subagent_model` (`providerId/modelId`, bare id, optional `$reasoningLevel`); (b) transient provider errors are invisible and retried without limit by the runtime, which also adapts fan-out to what the provider accepts; (c) deterministic provider errors (quota cap, expired sign-in, model not in plan, invalid request) bypass the script and stop the run as `stopped`/`provider` for the user to resolve and `ResumeWorkflowRun`; (d) the skill explicitly labels in-script provider retry loops "dead code" and reserves try/catch for logic failures and `ContextLimit` only. The only sanctioned failover levers are runtime-internal retry/adaptation and a main-agent-initiated `AmendWorkflow` with a different `subagent_model` (which stops the run and restarts with the import cache).
