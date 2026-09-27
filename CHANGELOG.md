@@ -9,6 +9,10 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
+- `bash-guard` test-suite diagnostics are now written in English: test
+  labels, the failure message format (`expected ... got ...` instead of the
+  previous French wording), and the final success and failure output. String
+  changes only: the executed checks and their expectations are unchanged.
 - `bash-guard` deny check simplified: the redundant `mkfs` equality clause was
   removed (the bare `mkfs` token is already a deny-list member) and the
   `mkfs.` prefix rule is stated as applying to every quoting/path candidate
