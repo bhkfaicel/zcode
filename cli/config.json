@@ -111,7 +111,8 @@
     },
     "enabledPlugins": {
       "shared-agents@shared-agents": true,
-      "shared-agents": true
+      "shared-agents": true,
+      "computer-use@zcode-plugins-official": true
     }
   },
   "hooks": {
