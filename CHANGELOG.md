@@ -9,6 +9,18 @@ and this project adheres to semantic versioning.
 
 ### Fixed
 
+- `bash-guard` payload handling now follows a decided failure-mode policy
+  instead of silently failing open on every anomaly: an explicit `tool_name`
+  other than `Bash` passes with a stderr note, whatever containers it
+  carries; a Bash payload whose command is missing or not a string is
+  blocked (block JSON on stdout, alarm on stderr) instead of passing
+  silently; with `tool_name` absent the legacy envelope shapes decide,
+  presuming Bash since the hook is registered for matcher `Bash`;
+  unparseable stdin stays fail-open by design with its stderr notice; a
+  bare JSON string on stdin is still treated as the command string. The
+  stderr strings are pinned as module constants and asserted by the test
+  suite, whose process-level helper now captures stderr alongside the exit
+  code and stdout.
 - `bash-guard` PreToolUse hook now treats newline, carriage return and a lone
   `&` as command separators when splitting a command into segments, so a
   destructive command placed after those separators (for example

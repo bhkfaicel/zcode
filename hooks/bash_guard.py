@@ -7,9 +7,22 @@ Reproduces the opencode bash permission deny-list: destructive commands
 Protocol (ZCode hooks):
 - stdin: JSON hook payload; the Bash command is located tolerantly
   (tool_input.command, input.command, command, or a raw string).
-- stdout on block: {"decision": "block", "reason": "..."} (exit 0).
-- stdout on pass: nothing, exit 0. Parse failure: pass (fail-open) and
-  log to stderr so the ZCode hook log shows the anomaly.
+- Classification precedence: an explicit tool_name other than "Bash"
+  passes with a stderr note, whatever containers it carries; an explicit
+  tool_name "Bash" is a Bash payload; when tool_name is absent the
+  payload is presumptively a Bash call (the hook is registered for
+  matcher "Bash") and the legacy envelope shapes decide: a command-
+  bearing structure with a usable string command is checked, a
+  command-bearing structure without one is blocked, anything else
+  passes with a stderr note.
+- stdout on deny block: {"decision": "block", "reason": "..."} (exit 0).
+  A Bash payload whose command is missing or not a string is blocked too
+  (block JSON on stdout, alarm on stderr): failing open there would
+  silently disarm the guard for exactly the call class it gates.
+- stdout on a passing Bash command: nothing, exit 0.
+- Unparseable stdin is unclassifiable: pass (fail-open) with a stderr
+  notice so the ZCode hook log shows the anomaly.
+- A bare JSON string on stdin is treated as the command string.
 
 Matching is segment-aware: the command is split on &&, ||, ;, |, a lone &
 (background separator), newline and carriage return, and every segment is
@@ -27,6 +40,26 @@ import json
 import os
 import re
 import sys
+
+# Decided payload-failure policy. Classification outcomes returned by
+# classify_payload: OUTCOME_BASH carries a command string to check against
+# the deny-list; OUTCOME_NON_BASH is not a Bash call (pass with a stderr
+# note); OUTCOME_MALFORMED is a Bash-shaped payload without a readable
+# command string (block with a stderr alarm).
+OUTCOME_BASH = "bash"
+OUTCOME_NON_BASH = "non_bash"
+OUTCOME_MALFORMED = "malformed"
+
+# Pinned stderr lines: the tests assert these strings and the ZCode hook
+# log shows them verbatim on anomalies. The unparseable line is a template;
+# the parser detail is interpolated at runtime, the static parts stay
+# pinned constants.
+STDERR_UNPARSEABLE = "bash-guard: unparseable stdin ({detail}); fail-open pass"
+STDERR_NOT_BASH = "bash-guard: not a Bash command; pass"
+STDERR_BLOCK_ALARM = "bash-guard: Bash payload without readable command string; blocking"
+
+# Stdout block reason for a Bash payload whose command cannot be read.
+REASON_NO_COMMAND = "Bash payload without readable command string; blocking"
 
 # First token deny-list: any command starting with one of these is blocked.
 # Extend this list freely; each entry matches the first word of a segment.
@@ -263,16 +296,76 @@ def extract_command(payload) -> str | None:
     return None
 
 
+def has_command_structure(payload) -> bool:
+    """Return True when the payload carries a command-bearing structure.
+
+    A structure is command-bearing when a tool_input or input container is
+    present, or a flat command key is present, whatever its usability.
+    With tool_name absent the hook is presumptively a Bash call (it is
+    registered for matcher "Bash"), so a payload carrying such a structure
+    without a usable command string is a malformed Bash payload rather
+    than a non-Bash call.
+    """
+    if not isinstance(payload, dict):
+        return False
+    return "tool_input" in payload or "input" in payload or "command" in payload
+
+
+def classify_payload(payload):
+    """Classify a parsed hook payload per the decided precedence.
+
+    Returns a tuple (outcome, command): (OUTCOME_BASH, str) carries the
+    command string to check; (OUTCOME_MALFORMED, None) marks a Bash-shaped
+    payload without a usable command string (blocked); (OUTCOME_NON_BASH,
+    None) marks everything else (passed with a stderr note).
+
+    Precedence: an explicit tool_name other than "Bash" decides first and
+    the payload is non-Bash whatever containers it carries; an explicit
+    tool_name "Bash" is a Bash payload; when tool_name is absent the
+    legacy envelope shapes decide, presumptively Bash. A bare JSON string
+    payload is the command string itself.
+    """
+    # An explicit tool_name wins over any container shape: a Read payload
+    # carrying a tool_input container is non-Bash, not Bash.
+    if isinstance(payload, dict) and "tool_name" in payload:
+        if payload.get("tool_name") != "Bash":
+            return OUTCOME_NON_BASH, None
+        command = extract_command(payload)
+        if command is None:
+            return OUTCOME_MALFORMED, None
+        return OUTCOME_BASH, command
+    # tool_name absent: the legacy envelope shapes decide.
+    command = extract_command(payload)
+    if command is not None:
+        return OUTCOME_BASH, command
+    if has_command_structure(payload):
+        return OUTCOME_MALFORMED, None
+    return OUTCOME_NON_BASH, None
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError as err:
-        print(f"bash-guard: unparseable stdin ({err}); failing open", file=sys.stderr)
+        # Unparseable stdin is unclassifiable (tool_name cannot even be
+        # inspected): fail-open by design, loudly noticed on stderr.
+        print(STDERR_UNPARSEABLE.format(detail=err), file=sys.stderr)
         return 0
 
-    command = extract_command(payload)
-    if command is None:
-        print(f"bash-guard: no command found in payload; failing open", file=sys.stderr)
+    outcome, command = classify_payload(payload)
+
+    if outcome == OUTCOME_NON_BASH:
+        # Explicit other tool, or no command-bearing structure at all:
+        # nothing to gate, pass with a stderr note for the hook log.
+        print(STDERR_NOT_BASH, file=sys.stderr)
+        return 0
+
+    if outcome == OUTCOME_MALFORMED:
+        # Bash-shaped payload whose command is missing or not a string:
+        # failing open here would silently disarm the guard for exactly
+        # the call class it gates, so block loudly instead.
+        print(STDERR_BLOCK_ALARM, file=sys.stderr)
+        print(json.dumps({"decision": "block", "reason": REASON_NO_COMMAND}))
         return 0
 
     offender = is_denied(command)
