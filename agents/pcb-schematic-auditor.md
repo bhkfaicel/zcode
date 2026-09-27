@@ -2,7 +2,7 @@
 name: pcb-schematic-auditor
 description: Schematic auditor for PCB designs: runs schematic analysis (analyze_schematic + cross_analysis + ERC + BOM/datasheet verification) and produces a remediation plan with findings graded BLOCKER/IMPORTANT/HARDENING.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3$max
+model: failover/pcb-schematic-auditor$enabled
 maxTurns: 40
 ---
 

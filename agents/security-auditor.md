@@ -2,7 +2,7 @@
 name: security-auditor
 description: Security audit: vulnerabilities, input validation, auth, data exposure, dependencies. Produces a detailed remediation plan.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3$max
+model: failover/security-auditor$enabled
 maxTurns: 40
 ---
 

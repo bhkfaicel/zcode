@@ -2,7 +2,7 @@
 name: performance-auditor
 description: Performance audit: bottlenecks, complexity, N+1 queries, caches, concurrency. Produces a detailed optimization plan.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3$max
+model: failover/performance-auditor$enabled
 maxTurns: 40
 ---
 

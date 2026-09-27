@@ -2,7 +2,7 @@
 name: pcb-emc-auditor
 description: EMC auditor for PCB designs: runs the offline EMC review pipeline (analyze_emc + cross_analysis + kicad-cli DRC/ERC) and produces a remediation plan with findings graded BLOCKER/IMPORTANT/HARDENING.
 tools: [Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch]
-model: account:zai-start-plan/GLM-5.3$max
+model: failover/pcb-emc-auditor$enabled
 maxTurns: 40
 ---
 
