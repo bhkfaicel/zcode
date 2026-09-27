@@ -92,26 +92,15 @@
     }
   },
   "plugins": {
-    "dirs": [
-      "~/.agents/agents-plugin"
-    ],
     "extraKnownMarketplaces": {
       "kicad-happy": {
         "source": {
           "source": "github",
           "repo": "aklofas/kicad-happy"
         }
-      },
-      "shared-agents": {
-        "source": {
-          "source": "directory",
-          "path": "~/.agents/agents-plugin"
-        }
       }
     },
     "enabledPlugins": {
-      "shared-agents@shared-agents": true,
-      "shared-agents": true,
       "computer-use@zcode-plugins-official": true
     }
   },

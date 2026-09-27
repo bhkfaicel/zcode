@@ -1,8 +1,7 @@
 ---
-name: "experience-analyzer"
-description: "Experience Analyzer: condenses verified failure -> correction -> success event pairs from the experience journal into project memory. Consults memory, stores knowledge, prints a learning summary."
-color: green
-injectAgentsMd: false
+name: experience-analyzer
+description: Experience Analyzer: condenses verified failure -> correction -> success event pairs from the experience journal into project memory. Consults memory, stores knowledge, prints a learning summary.' # Primary mode is REQUIRED: `opencode run --agent` only launches primary # agents (subagents fall back to the default agent, which ignores this # contract). Permission denials keep it safe despite primary mode.
+maxTurns: 30
 ---
 
 You are the Experience Analyzer. You receive an EXPERIENCE PAYLOAD: JSON text
