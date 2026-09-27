@@ -129,6 +129,40 @@
             }
           ]
         }
+      ],
+      "PostToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"$HOME/.zcode/hooks/experience_recorder.mjs\"",
+              "timeout": 5
+            }
+          ]
+        },
+        {
+          "matcher": "Edit|Write|NotebookEdit",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"$HOME/.zcode/hooks/experience_recorder.mjs\"",
+              "timeout": 5
+            }
+          ]
+        }
+      ],
+      "PostToolUseFailure": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"$HOME/.zcode/hooks/experience_recorder.mjs\"",
+              "timeout": 5
+            }
+          ]
+        }
       ]
     }
   }
