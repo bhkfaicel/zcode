@@ -11,3 +11,4 @@ cli/memories/
 cli/plugins/*
 !cli/plugins/known_marketplaces.json
 cli/artifacts/
+plan/
