@@ -68,12 +68,26 @@ Accepted limits, in three groups:
   IFS manipulation, mixed quoting beyond the supported forms, and
   `$'...'` content holding ANSI-C escapes stay unnormalized and can
   slip past the deny-list.
+
+Interpreter compatibility: the module deliberately avoids
+version-sensitive syntax — in particular it uses no PEP 604 union
+annotations (optional-value annotations use typing.Optional instead) —
+so importing it does not require a recent interpreter. This is a
+static-syntax statement about the constructs present in the source
+only; it is not a runtime-verified minimum-version claim.
 """
 
 import json
 import os
 import re
 import sys
+
+# Optional-value annotations use typing.Optional instead of the PEP 604
+# union operator: annotations are evaluated eagerly at function-definition
+# time, so the union-operator form would raise TypeError at import on
+# interpreters predating that syntax. typing.Optional is stdlib with no
+# runtime cost and keeps the module free of version-sensitive syntax.
+import typing
 
 # Decided payload-failure policy. Classification outcomes returned by
 # classify_payload: OUTCOME_BASH carries a command string to check against
@@ -306,7 +320,7 @@ def deny_candidates(token):
     return forms
 
 
-def is_denied(command: str) -> str | None:
+def is_denied(command: str) -> typing.Optional[str]:
     """Return the offending token when the command must be blocked."""
     for segment in SEGMENT_SPLIT.split(command or ""):
         candidate = executable_candidate(segment.strip().split())
@@ -321,7 +335,7 @@ def is_denied(command: str) -> str | None:
     return None
 
 
-def extract_command(payload) -> str | None:
+def extract_command(payload) -> typing.Optional[str]:
     """Locate the Bash command in a hook payload (tolerant to shapes)."""
     if isinstance(payload, str):
         return payload

@@ -30,6 +30,15 @@ and this project adheres to semantic versioning.
 
 ### Fixed
 
+- `bash-guard` no longer uses PEP 604 union annotations: the two return
+  annotations written with the union operator are now `typing.Optional[str]`.
+  Annotations are evaluated eagerly at function-definition time, so the
+  union-operator form crashed the module import on interpreters predating
+  that syntax (the registration invokes a bare `python3`, whose version is
+  host-dependent). The module docstring documents the narrowed claim only:
+  the module avoids version-sensitive syntax and uses `typing.Optional`,
+  and no runtime-verified minimum Python version is claimed. No behavior
+  change on the registered interpreter.
 - `bash-guard` payload handling now follows a decided failure-mode policy
   instead of silently failing open on every anomaly: an explicit `tool_name`
   other than `Bash` passes with a stderr note, whatever containers it
