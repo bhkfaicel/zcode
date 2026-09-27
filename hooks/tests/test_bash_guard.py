@@ -43,6 +43,11 @@ check("rm en milieu de chaine (;)", is_denied("echo a; rm x") is not None, True)
 check("rm en milieu de chaine (||)", is_denied("false || rm -rf y") is not None, True)
 check("rm en milieu de chaine (|)", is_denied("echo b | rm -") is not None, True)
 check("mkfs.vfat", is_denied("mkfs.vfat /dev/sdz") is not None, True)
+# mkfs deny rule: the bare token is a deny-list member and every
+# mkfs.<fstype> variant is caught by the prefix rule, on every
+# quoting/path candidate form
+check("mkfs bare token", is_denied("mkfs /dev/sda") is not None, True)
+check("mkfs.ext4 prefix variant", is_denied("mkfs.ext4 /dev/sda") is not None, True)
 check("dd", is_denied("dd if=/dev/zero of=/dev/sda") is not None, True)
 check("faux positif: remmina", is_denied("remmina"), None)
 check("faux positif: rmdir n'est pas rm mais est bloque", is_denied("rmdir d") is not None, True)

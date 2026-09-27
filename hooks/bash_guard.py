@@ -313,7 +313,10 @@ def is_denied(command: str) -> str | None:
         if candidate is None:
             continue
         for form in sorted(deny_candidates(candidate)):
-            if form in DENY_FIRST_TOKENS or form == "mkfs" or form.startswith("mkfs."):
+            # Deny rule: exact membership in the deny-list, plus the
+            # mkfs.<fstype> prefix rule applied to every candidate form;
+            # the bare "mkfs" token is covered by the membership itself.
+            if form in DENY_FIRST_TOKENS or form.startswith("mkfs."):
                 return form
     return None
 

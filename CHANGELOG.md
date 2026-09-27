@@ -9,6 +9,11 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
+- `bash-guard` deny check simplified: the redundant `mkfs` equality clause was
+  removed (the bare `mkfs` token is already a deny-list member) and the
+  `mkfs.` prefix rule is stated as applying to every quoting/path candidate
+  form. No behavior change: `mkfs /dev/sda` and `mkfs.ext4 /dev/sda` remain
+  blocked, and the test suite pins both.
 - `bash-guard` module docstring now states the enforced property on its own
   terms (a first-token backstop: the direct command word behind leading
   assignments and a leading run of supported wrapper commands and options is
