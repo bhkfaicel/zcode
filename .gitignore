@@ -2,15 +2,14 @@
 v2/
 workspace/
 plugin-workspace/
-cli/db/
-cli/exec/
-cli/log/
-cli/rollout/
-cli/memories/
-# Plugin storage: cache/data re-download from marketplaces; keep the registry
+# CLI: everything under cli/ is runtime state, version only the config and
+# the marketplace registry; any future runtime directory is ignored by
+# default (cli/* excludes the contents, so the re-inclusions below work)
+cli/*
+!cli/config.json
+!cli/plugins/
 cli/plugins/*
 !cli/plugins/known_marketplaces.json
-cli/artifacts/
 plan/
 .opencode-memory/
 # Python bytecode caches: regenerated from source on every interpreter run

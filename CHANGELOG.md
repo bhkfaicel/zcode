@@ -9,6 +9,22 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
+- Git hygiene: `cli/` handling in `.gitignore` switched to a whitelist —
+  everything under `cli/` is treated as runtime state and ignored, except
+  `cli/config.json` and `cli/plugins/known_marketplaces.json` which stay
+  versioned. The previous per-subdirectory rules had let 121 subagent
+  session files under `cli/agents/` and one cached image under
+  `cli/image-cache/` slip into history through a past `git add -A`; those
+  files are untracked from the index (kept on disk), so future `git add -A`
+  runs can no longer sweep session state into a commit.
+- Workflow policy (AGENTS.md): a new rule mandates one fresh session per
+  development task — the development of every new task or plan must start in
+  a brand-new session instead of being appended to a long-running
+  conversation, with the on-disk plan file (`plan/<YYYY-MM-DD>-<type>-plan.md`)
+  as the only context carrier between sessions (each new session re-reads the
+  plan file, the branch state, and the CHANGELOG from disk). Documentation
+  only: no code behavior affected.
+
 - Repository hygiene: the compiled Python bytecode artifact under
   `hooks/__pycache__/` is no longer tracked, and `__pycache__/` was added to
   `.gitignore`. Bytecode caches are regenerated from source on every
