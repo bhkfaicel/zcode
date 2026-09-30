@@ -152,6 +152,17 @@
             }
           ]
         }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"$HOME/.zcode/hooks/experience_analyze_trigger.mjs\"",
+              "timeout": 10
+            }
+          ]
+        }
       ]
     }
   }

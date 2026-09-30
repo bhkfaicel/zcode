@@ -128,6 +128,15 @@ and this project adheres to semantic versioning.
 
 ### Fixed
 
+- Hooks silently disabled since 2026-09-29 (~01:28): the Stop entry added for
+  the experience-analyzer trigger carried `"matcher": ""`, but the app schema
+  validates a present matcher as a non-empty string, so the whole `hooks`
+  block of `cli/config.json` failed validation on load — the Settings → Hooks
+  page showed nothing and NO hook executed (bash-guard did not block, the
+  experience recorder journaled nothing; verified by live probe and by the
+  journals' last entries). Fix: the Stop entry simply omits `matcher` (absent
+  matches all tools, same semantics an empty matcher intended). The other
+  three hook entries were always valid.
 - `bash-guard` no longer uses PEP 604 union annotations: the two return
   annotations written with the union operator are now `typing.Optional[str]`.
   Annotations are evaluated eagerly at function-definition time, so the
