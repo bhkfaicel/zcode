@@ -51,6 +51,14 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
+- Runbooks (`~/.agents/commands/`, repo #1 commit ada91b8): `/dev`,
+  `/kicad-review` and `/pcb-design` aligned with the session-granularity
+  rule — every post-fix revalidation now runs as a fresh Agent-tool
+  dispatch of the same-type auditor with a self-contained brief (one
+  auditor session per revalidation) instead of resuming the analysis
+  session via SendMessage; auditor agentIds serve only plan-creation
+  critic dialogues and refreshes; `/dev` revalidation rounds gain a max-3
+  rejection ceiling. `/audit` and `/pcb-audit` already followed this model.
 - Workflow policy (AGENTS.md): session granularity for audit workflows
   refined — plan-creation dialogues stay in one auditor session for the
   whole critic dialogue, relaunches included: after a quota or transient
