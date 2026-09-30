@@ -51,12 +51,14 @@ and this project adheres to semantic versioning.
 
 ### Changed
 
-- Workflow policy (AGENTS.md): plan-creation dialogues must stay in one
-  session — for a given plan, every auditor/critic round (changes-required,
-  rebuttals, clarifications, re-reviews of a revised plan) runs in the same
-  auditor session, resumed via its existing agent instance; a fresh auditor
-  session is reserved for a new plan or scope, or for the documented
-  quota/context-exhaustion relaunch. Documentation only.
+- Workflow policy (AGENTS.md): session granularity for audit workflows
+  refined — plan-creation dialogues stay in one auditor session for the
+  whole critic dialogue, relaunches included: after a quota or transient
+  interruption the same session is resumed via its existing agent instance,
+  never replaced by a fresh one (fresh sessions only for a new plan/scope
+  or an unrecoverable instance); the revalidation audits that follow
+  development run one session per audit and per task; the implementer
+  likewise executes each new task in a fresh session. Documentation only.
 - Audit runbook (`~/.agents/commands/audit.md`) rewritten for its analysis
   phase: step 1 now dispatches the three auditor agents directly via the
   Agent tool (`architecture-auditor`, `performance-auditor`,
