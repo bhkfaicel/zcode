@@ -7,8 +7,70 @@ and this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Experience-analyzer auto-trigger as a ZCode `Stop` hook — the ZCode-side
+  port of the opencode experience-recorder's `session.idle` flow, which had
+  never been carried over (the analyzer previously only ran manually via
+  `/learn`). Two new scripts under `hooks/`:
+  `experience_analyze_trigger.mjs` (fast path: reads the Stop payload,
+  checks the project journal `.opencode-memory/experience-log.jsonl` with
+  the opencode-identical gates — new failure/success pairs since the cursor,
+  30-minute minimum interval, 5-run daily cap via the shared
+  `~/.config/opencode/plugins/lib/experience-lib.js` — writes the analyzer
+  payload and detaches the worker) and `experience_analyze_worker.mjs`
+  (detached: runs the `experience-analyzer` agent headless through the
+  opencode CLI with the same prompt and cheap-plan model as opencode, with
+  a 10-minute timeout and a lock heartbeat, then advances the journal cursor
+  only when a `LEARNED`/`NOTHING NEW` summary was extracted, writing the
+  summary to `.opencode-memory/experience-analyze-last.txt` and a diagnostic
+  line to `.opencode-memory/experience-analyze.log`). Stop hook registered
+  in `cli/config.json` (backup kept at `config.json.bak-experience-hook`).
+  Env overrides: `EXPERIENCE_ANALYZE_DRYRUN`, `EXPERIENCE_ANALYZE_FORCE`,
+  `EXPERIENCE_ANALYZER_BIN`, `EXPERIENCE_ANALYZER_MODEL`,
+  `EXPERIENCE_ANALYZER_RUN` (self-trigger guard). Integration tests in
+  `hooks/tests/experience_analyze_trigger.test.sh` (15 checks, all passing):
+  dry-run decisions, pair coverage, cursor advance on success, interval
+  gate, empty-journal skip, lock lifecycle. Known limitation inherited from
+  the recorder: journals only capture loud VCS/build/test commands and
+  Edit/Write tool events, so projects whose gates run through other CLIs
+  (e.g. `kicad-cli`, `pcbnew` python) produce no pairs and stay idle.
+
+- Recorder loudness superset (`hooks/experience_recorder.mjs`): EDA gate
+  commands (`kicad-cli`, `pcbnew`, the offline skill analyzers
+  `analyze_pcb.py`/`analyze_schematic.py`/`analyze_emc.py`,
+  `cross_analysis.py`, `simulate_subcircuits`, `analyze_thermal`,
+  parasitics, `gnd_via_grid_scan.py`, `check_report_sections.py`,
+  `deep_review`) now count as loud on the ZCode side. Previously a failed
+  EDA gate journaled a failure event whose success was dropped (the shared
+  lib's loud list covers VCS/build/test only), so failure->correction pairs
+  could never form and the experience-analyzer had nothing to condense for
+  PCB work. `hooks/tests/test_experience_recorder.mjs` extended with three
+  cases (EDA success journaled, failure->success pair formation asserted
+  through `pairEvents`, silent-command regression guard): 25 checks pass.
+
 ### Changed
 
+- Workflow policy (AGENTS.md): plan-creation dialogues must stay in one
+  session — for a given plan, every auditor/critic round (changes-required,
+  rebuttals, clarifications, re-reviews of a revised plan) runs in the same
+  auditor session, resumed via its existing agent instance; a fresh auditor
+  session is reserved for a new plan or scope, or for the documented
+  quota/context-exhaustion relaunch. Documentation only.
+- Audit runbook (`~/.agents/commands/audit.md`) rewritten for its analysis
+  phase: step 1 now dispatches the three auditor agents directly via the
+  Agent tool (`architecture-auditor`, `performance-auditor`,
+  `security-auditor`) so their agent definitions apply (pinned model,
+  tools, maxTurns, protocol text), instead of launching the saved
+  `audit-analyze` workflow whose inline prompts bypassed those definitions
+  and silently ran the auditors on the session model. Fallback ladder on
+  model concurrency/quota launch errors: serial relaunch (one auditor at a
+  time, architecture first), then stop and ask the user in French (enable
+  the commented failover line `#model: failover/<type>-auditor$enabled` in
+  the agent definitions, or wait and relaunch later). Frontmatter
+  description aligned. No other step changed: critic dialogues, per-plan
+  user validation, the `audit-fix` workflow, merge gates and hard rules
+  are untouched.
 - Git hygiene: `cli/` handling in `.gitignore` switched to a whitelist —
   everything under `cli/` is treated as runtime state and ignored, except
   `cli/config.json` and `cli/plugins/known_marketplaces.json` which stay
