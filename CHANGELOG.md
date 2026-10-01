@@ -9,6 +9,19 @@ and this project adheres to semantic versioning.
 
 ### Added
 
+- The 14 spec-kit commands ported from opencode to `~/.agents/commands/`
+  (repo #1 commit 637e2f0): they lived only in opencode-scoped directories
+  (`~/.config/opencode/command/` global and per-project
+  `.opencode/command/`) which ZCode never scans, and their dotted file
+  names (`speckit.plan.md`) violate the ZCode command-name pattern (dots
+  forbidden — such a file is silently dropped). Ported from the
+  project-level copies (clean `description`-only frontmatter; the opencode
+  globals carry opencode-only `agent`/`subtask`/`handoffs` keys), renamed
+  with dashes (`speckit-plan.md` → `/speckit-plan`), and the cross-command
+  references in the bodies rewritten to the new names. Bodies otherwise
+  unchanged; the commands only apply inside spec-kit-initialized projects
+  (`.specify/` scripts and templates).
+
 - Experience-analyzer auto-trigger as a ZCode `Stop` hook — the ZCode-side
   port of the opencode experience-recorder's `session.idle` flow, which had
   never been carried over (the analyzer previously only ran manually via
