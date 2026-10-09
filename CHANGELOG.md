@@ -7,7 +7,15 @@ and this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.0] 2026-10-09
+
 ### Added
+
+- Repository README (`README.md`): documents the purpose of the `~/.zcode`
+  configuration repository, the tracked layout (agents, protocols, hooks,
+  workflows, CLI config, failover setup), the three standalone hook test
+  commands, fresh-machine setup, the gitignored runtime state, and the
+  repository conventions.
 
 - Graphify code map for the code-facing agents: `graphifyy` 0.9.73 (pinned,
   PyPI double-y spelling; installed via `uv tool install`, executables
@@ -29,7 +37,7 @@ and this project adheres to semantic versioning.
   Freshness design: lazy in-session incremental update (measured 0.6 s
   after a file edit vs 2.9 s full build on a 3-file JS sample), optionally
   complemented per repo by Graphify's own git hooks (`graphify hook
-  install`, background refresh after commits and branch switches) —
+install`, background refresh after commits and branch switches) —
   deliberately NOT a ZCode PostToolUse auto-update hook (a Python process
   per Edit/Write on the hot path with no consumer mid-task, while the
   per-task-commit workflow means the git hooks and the lazy update already
