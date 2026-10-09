@@ -9,6 +9,38 @@ and this project adheres to semantic versioning.
 
 ### Added
 
+- Graphify code map for the code-facing agents: `graphifyy` 0.9.73 (pinned,
+  PyPI double-y spelling; installed via `uv tool install`, executables
+  `graphify` and `graphify-mcp` in `~/.local/bin`) and a "code map" paragraph
+  in `agents/architecture-auditor.md`, `agents/security-auditor.md`,
+  `agents/performance-auditor.md` and `agents/ask.md`. Conditional on
+  `graphify-out/graph.json` existing in the audited project root: the agent
+  runs `graphify update .` once before its first graph query (measured
+  sub-second incremental, 60 s timeout, offline no-LLM rebuild), then orients
+  exploration through the CLI (`god-nodes` for architectural hubs, `query`
+  for bounded question traversal, `path` for cross-file chains, `explain`
+  for call sites, `affected "X"` for reverse impact radius) before grepping.
+  Hard invariant encoded in every paragraph: the graph is a MAP for
+  targeting greps, never EVIDENCE — findings still require `file:line` +
+  quoted code read from the actual file; any graphify failure, timeout or
+  absence degrades silently to the previous grep-only behavior. Agents
+  query via the CLI only (the `graph.json` schema is unstable across the
+  pre-1.0 near-daily releases, so nothing may parse it as a contract).
+  Freshness design: lazy in-session incremental update (measured 0.6 s
+  after a file edit vs 2.9 s full build on a 3-file JS sample), optionally
+  complemented per repo by Graphify's own git hooks (`graphify hook
+  install`, background refresh after commits and branch switches) —
+  deliberately NOT a ZCode PostToolUse auto-update hook (a Python process
+  per Edit/Write on the hot path with no consumer mid-task, while the
+  per-task-commit workflow means the git hooks and the lazy update already
+  cover every consumer), and deliberately no coupling to the
+  experience-analyzer hooks (behavioral failure->correction lessons and
+  deterministic code structure are disjoint domains; the hook chain stays
+  dependency-light). No MCP registration either: the server config bakes an
+  absolute graph path per project into the global `cli/config.json`, one
+  project at a time, for little gain over the CLI. `graphify-out/` added to
+  `.gitignore` (generated artifact, must never be committed).
+
 - The 14 spec-kit commands ported from opencode to `~/.agents/commands/`
   (repo #1 commit 637e2f0): they lived only in opencode-scoped directories
   (`~/.config/opencode/command/` global and per-project

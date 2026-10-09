@@ -46,6 +46,20 @@ try {
 const FAILURE_MARKERS =
   /(failed|failure|fatal:|error\[|error:|panic|exit code|nonzero|not found|no such file|aborted|timed out|conflict)/i;
 
+// ZCode-side loudness superset. The shared lib covers VCS/build/test CLIs
+// only; hardware-EDA gate commands (kicad-cli DRC/ERC, the offline skill
+// analyzers, pcbnew scripts) are the real gates of PCB projects but are not
+// "loud" in the lib's sense. Without this superset a failed EDA gate
+// journals a failure event that can never pair with its success (successes
+// were dropped), so no failure->correction lesson could ever form.
+const ZCODE_LOUD_EXTRA =
+  /(kicad-cli|pcbnew|analyze_(pcb|schematic|emc)\.py|cross_analysis\.py|simulate_subcircuits|analyze_thermal|parasitics|gnd_via_grid_scan|check_report_sections|deep_review)/i;
+
+/** Loudness decision for ZCode: lib list + the EDA-gate superset. */
+function isLoudZcode(cmd) {
+  return lib.isLoudCommand(cmd) || ZCODE_LOUD_EXTRA.test(String(cmd || ""));
+}
+
 /** Tolerant failure detection over the ZCode tool response shape. */
 function detectFailure(response) {
   if (response == null) return false;
@@ -126,7 +140,7 @@ function main() {
       String(payload.error || payload.message || "tool call failed");
   } else if (eventName === "PostToolUse" && isBashEvent) {
     const cmd = extractCommand(payload.tool_input);
-    if (cmd === null || !lib.isLoudCommand(cmd)) return; // silent commands are not gate events
+    if (cmd === null || !isLoudZcode(cmd)) return; // silent commands are not gate events
     const response = payload.tool_response;
     let failed;
     if (response && typeof response === "object") {

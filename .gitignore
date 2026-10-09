@@ -12,5 +12,8 @@ cli/plugins/*
 !cli/plugins/known_marketplaces.json
 plan/
 .opencode-memory/
+# Graphify generated code-map output: rebuilt from source by `graphify update .`
+graphify-out/
 # Python bytecode caches: regenerated from source on every interpreter run
 __pycache__/
+tmp/

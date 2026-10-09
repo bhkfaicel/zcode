@@ -54,6 +54,9 @@ function withTempProject(fn) {
   }
 }
 
+// Shared experience lib (ESM): needed to assert pair formation end-to-end.
+const lib = await import("/Users/macbook/.config/opencode/plugins/lib/experience-lib.js");
+
 // 1. Loud successful command -> success event with normalized cmd + family.
 withTempProject((project) => {
   runHook(
@@ -190,6 +193,68 @@ withTempProject((project) => {
     project,
   );
   check("read: no event", journalOf(project).length, 0);
+});
+
+// 11. ZCODE_LOUD_EXTRA: an EDA gate SUCCESS is journaled (previously dropped,
+//     which left failure events unpaired and blocked every lesson).
+withTempProject((project) => {
+  runHook(
+    {
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: {
+        command:
+          "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb drc --severity-all main.kicad_pcb",
+      },
+      tool_response: { exitCode: 0, output: "Found 0 violations\n" },
+    },
+    project,
+  );
+  const events = journalOf(project);
+  check("eda success: journaled", events.length, 1);
+  check("eda success: kind", events[0]?.kind, "success");
+});
+
+// 12. Full pair formation: a failed kicad-cli gate then a passing one must
+//     yield exactly one failure->success pair for the analyzer.
+withTempProject((project) => {
+  runHook(
+    {
+      hook_event_name: "PostToolUseFailure",
+      tool_name: "Bash",
+      tool_input: { command: "kicad-cli pcb drc --severity-all main.kicad_pcb" },
+      tool_response: { exitCode: 1, output: "Found 3 violations\n" },
+      error: "Found 3 violations",
+    },
+    project,
+  );
+  runHook(
+    {
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "kicad-cli pcb drc --severity-all main.kicad_pcb" },
+      tool_response: { exitCode: 0, output: "Found 0 violations\n" },
+    },
+    project,
+  );
+  const events = journalOf(project);
+  check("eda pair: two events", events.length, 2);
+  check("eda pair: failure then success", [events[0]?.kind, events[1]?.kind], ["failure", "success"]);
+  check("eda pair: pairEvents finds 1 pair", lib.pairEvents(events).length, 1);
+});
+
+// 13. Truly silent commands stay unjournaled (regression guard).
+withTempProject((project) => {
+  runHook(
+    {
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "ls -la src/" },
+      tool_response: { exitCode: 0, output: "" },
+    },
+    project,
+  );
+  check("silent command: no event", journalOf(project).length, 0);
 });
 
 if (failures.length > 0) {
